@@ -67,6 +67,7 @@ use Geo::GDAL;
 use Geo::OGR;
 use Geo::OSR;
 use Geo::GDAL::Const;
+use Text::CSV;
 
 #Hold a copy of the original ARGV just in case
 my @ARGV_unmodified;
@@ -117,11 +118,8 @@ sub main {
         { RaiseError => 1 },
         ) or die $DBI::errstr;
 
-    #Print header info
-    say "type,height,mefHeight,longitude,latitude";
-
-    #Hash for highest MEF for each quadgrangle
-    my %mef;
+    #Hashes for highest MEF for each quadgrangle, terrain and obstacle
+    my ( %mef, %terrain, %obstacles );
 
     #How big do we want each sub-quadgrangle to be (in degrees)
     my $degree_increment = .5;
@@ -188,6 +186,7 @@ sub main {
         #The world-coordinates bounding box of the overall DEM
         my ( $srtmMinimumLongitude, $srtmMaximumLatitude )
             = ( $world_ul_x_rounded, $world_ul_y_rounded );
+            
         my ( $srtmMaximumLongitude, $srtmMinimumLatitude )
             = ( $world_lr_x_rounded, $world_lr_y_rounded );
 
@@ -256,10 +255,11 @@ sub main {
                     next unless $key;
 
                     #Calculate the MEF for this height
-                    my $obstacleMefHeight = roundup(
-                        eval( $obstacleHash->{$key}{"MAX (amsl_ht)"} + 100 ),
-                        100
-                    );
+                    my $obstacleHeight
+                        = $obstacleHash->{$key}{'MAX (amsl_ht)'};
+
+                    my $obstacleMefHeight
+                        = roundup( eval( $obstacleHeight + 100 ), 100 );
 
                     #Round longitude/latitude values to 5 decimal places
                     my $maxHeight_longitude = sprintf( "%.5f",
@@ -267,12 +267,12 @@ sub main {
                     my $maxHeight_latitude = sprintf( "%.5f",
                         $obstacleHash->{$key}{"obstacle_latitude"} );
 
-                    #Print out the values we care about
-                    say "obstacle" . ","
-                        . $obstacleHash->{$key}{"MAX (amsl_ht)"} . ","
-                        . $obstacleMefHeight . ","
-                        . $maxHeight_longitude . ","
-                        . $maxHeight_latitude;
+                    #Save the obstacle info
+                    $obstacles{$mefKey}{'TYPE'}      = 'OBSTACLE';
+                    $obstacles{$mefKey}{'Height'}    = $obstacleHeight;
+                    $obstacles{$mefKey}{'mefHeight'} = $obstacleMefHeight;
+                    $obstacles{$mefKey}{'Longitude'} = $maxHeight_longitude;
+                    $obstacles{$mefKey}{'Latitude'}  = $maxHeight_latitude;
 
                     #Save the MEF height in the overal hash
                     if ( $obstacleMefHeight >= $mef{$mefKey}{'MEF'} ) {
@@ -324,6 +324,11 @@ sub main {
                 #Find the MAX value in that array
                 my $max = $rgbvals[$idxMax];
 
+                #pixel values may have a scale and offset value
+                #Though in the SRTM DEMs they shouldn't, it should just be
+                #the elevation in meters at that point
+                $max = $max * $scale + $offset;
+
                 #Find where it occurs in the sub quadrant by converting the index
                 #back into x,yne
                 my ( $y_index, $x_index )
@@ -351,16 +356,17 @@ sub main {
 
                     #Convert from meters to feet
                     $quadrantMaxHeightInFeet = $max * 3.281;
-                    
+
                     #Calculate MEF for this height
                     $terrainMef
                         = roundup( $quadrantMaxHeightInFeet + 300, 100 );
 
-                    say "terrain" . ","
-                        . $quadrantMaxHeightInFeet . ","
-                        . $terrainMef . ","
-                        . $maxHeight_longitude . ","
-                        . $maxHeight_latitude;
+                    # Save terrain info
+                    $terrain{$mefKey}{'TYPE'}      = 'TERRAIN';
+                    $terrain{$mefKey}{'Height'}    = $quadrantMaxHeightInFeet;
+                    $terrain{$mefKey}{'mefHeight'} = $terrainMef;
+                    $terrain{$mefKey}{'Longitude'} = $maxHeight_longitude;
+                    $terrain{$mefKey}{'Latitude'}  = $maxHeight_latitude;
 
                     #Save the MEF height in the overal hash
                     if ( $terrainMef >= $mef{$mefKey}{'MEF'} ) {
@@ -372,14 +378,12 @@ sub main {
                     }
                 }
                 else {
-                    $terrainMef = 300;
-
-                    #No elevation info found, default is 300 ft
-                    say "terrain" . "," . "300" . "," . "300" . ","
-                        . $middleLongitude . ","
-                        . $middleLatitude;
-
-                    $mef{$mefKey}{'TYPE'} = 'NO_SRTM';
+                    # Save terrain info
+                    $terrain{$mefKey}{'TYPE'}      = 'NO_SRTM';
+                    $terrain{$mefKey}{'Height'}    = '300';
+                    $terrain{$mefKey}{'mefHeight'} = '300';
+                    $terrain{$mefKey}{'Longitude'} = $middleLongitude;
+                    $terrain{$mefKey}{'Latitude'}  = $middleLatitude;
 
                 }
 
@@ -388,14 +392,19 @@ sub main {
 
     }
 
-    #Dump the MEF hash to a CSV file
-    use Text::CSV;
-    open my $file, ">", "mef.csv" or die "Couldn't open mef file: $!";
-    my @names = ( 'Quadrant', 'Type', 'MEF', 'Longitude', 'Latitude' );
+    #Dump the hashes to CSV
 
-    my $csv = Text::CSV->new() or die;
+    my @columns;
+    my $file;
+    my $csv;
+
+    #Dump the MEF hash to a CSV file
+    open $file, ">", "mef.csv" or die "Couldn't open mef file: $!";
+    @columns = ( 'Quadrant', 'Type', 'MEF', 'Longitude', 'Latitude' );
+
+    $csv = Text::CSV->new() or die;
     $csv->eol("\n");
-    $csv->print( $file, \@names );
+    $csv->print( $file, \@columns );
 
     foreach ( sort keys %mef ) {
         my @row = [
@@ -406,6 +415,51 @@ sub main {
 
         $csv->print( $file, @row );
     }
+    close $file;
+
+    #Dump the obstacles hash to a CSV file
+    open $file, ">", "obstacles.csv"
+        or die "Couldn't open obstacles file: $!";
+    @columns = ( 'Quadrant', 'type', 'height', 'mefHeight', 'longitude',
+        'latitude' );
+
+    $csv = Text::CSV->new() or die;
+    $csv->eol("\n");
+    $csv->print( $file, \@columns );
+
+    foreach ( sort keys %obstacles ) {
+        my @row = [
+            $_,                          $obstacles{$_}{'TYPE'},
+            $obstacles{$_}{'Height'},    $obstacles{$_}{'mefHeight'},
+            $obstacles{$_}{'Longitude'}, $obstacles{$_}{'Latitude'}
+        ];
+
+        $csv->print( $file, @row );
+    }
+    close $file;
+
+    #Dump the terrain hash to a CSV file
+    open $file, ">", "terrain.csv" or die "Couldn't open terrain file: $!";
+    @columns = ( 'Quadrant', 'type', 'height', 'mefHeight', 'longitude',
+        'latitude' );
+
+    $csv = Text::CSV->new() or die;
+    $csv->eol("\n");
+    $csv->print( $file, \@columns );
+
+    foreach ( sort keys %terrain ) {
+        my @row = [
+            $_,                        $terrain{$_}{'TYPE'},
+            $terrain{$_}{'Height'},    $terrain{$_}{'mefHeight'},
+            $terrain{$_}{'Longitude'}, $terrain{$_}{'Latitude'}
+        ];
+
+        $csv->print( $file, @row );
+    }
+    close $file;
+
+    #     #Print header info
+    #     say "type,height,mefHeight,longitude,latitude";
 
     #print Dumper \%mef;
 }
