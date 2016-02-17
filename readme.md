@@ -31,6 +31,7 @@
 		sqlite3 mef_spatialite.sqlite < sqliteToSpatialite.sql
 
 I've also included the output as of 17 February 2016
+
         mef.csv
             Highest of terrain or obstacle MEF for each quadrant
         
