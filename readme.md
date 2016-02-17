@@ -6,13 +6,13 @@
 #Uses data from SRTM and NASR obstacle database
 	To get started:
 		#execute setup script
-		#Installs dependencies, 
+		#Installs dependencies, git hooks etc
 		./setup.sh
 		
-		#Download all SRTM data
+		#Download all SRTM data (~17 GB total)
 		./getSrtmData.sh
 		
-		#Get the data archive from Dropbox
+		#Get the data archive from Dropbox (~40MB compressed)
 		wget --timestamping -erobots=off https://www.dropbox.com/s/z4iimyokif472wj/MaximumElevationFigureData.tar.xz?dl=0
 		
 		#Get the latest NASR database
@@ -20,6 +20,7 @@
 		#https://github.com/jlmcgraw/processFaaData
 		
 		#Execute the script
+		#Takes about 4 hours on my dinky VM
 		carton exec ./calculate_mef.pl /path/to/srtm/files
 		
 		#Convert CSV to sqlite database
