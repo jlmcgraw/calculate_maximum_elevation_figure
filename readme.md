@@ -14,6 +14,7 @@
 		
 		#Get the data archive from Dropbox (~40MB compressed)
 		wget --timestamping -erobots=off https://www.dropbox.com/s/z4iimyokif472wj/MaximumElevationFigureData.tar.xz?dl=0
+		tax xvf MaximumElevationFigureData.tar.xz
 		
 		#Get the latest NASR database
 		#I've included one or you can create fresh data with
