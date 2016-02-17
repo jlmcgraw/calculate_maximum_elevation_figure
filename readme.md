@@ -1,6 +1,8 @@
 #Calculate MEF values for areas where we have terrain and/or obstacle data
+![World](https://raw.github.com/jlmcgraw/calculate_maximum_elevation_figure/master/World%20MEF.png)
+
 #Used with Aviation map 
-#
+
 #Uses data from SRTM and NASR obstacle database
 	To get started:
 		#execute setup script
